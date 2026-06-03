@@ -1,0 +1,362 @@
+# kaa-scheduler
+
+`kaa-scheduler` 是一个面向 Windows 的 UU + kaa 自动编排工具，目标是把每日流程收敛成一条可重复执行的链路。
+
+当前版本已经实机跑通以下流程：
+
+1. 启动或附着 UU
+2. 打开 `学园偶像大师` 对应的加速页
+3. 如有需要，点击开始加速
+4. 启动 `kaa.exe` 并等待其退出
+5. 停止 UU 加速，并处理停止时的确认弹窗
+
+## 当前状态
+
+- 已实现 CLI 入口、日志、单实例锁、UU 控制、kaa 控制、计划任务脚本
+- 已支持 `run`、`probe-uu`、`probe-kaa` 三个命令
+- 已支持 `--dry-run`，便于先验证流程而不真正点击外部程序
+- 已在当前仓库对应机器上完成真实端到端验证
+
+## 运行前提
+
+真实运行前，请先确认以下条件：
+
+- 操作系统为 Windows
+- Python 版本不低于 `3.9`
+- 运行真实自动化时，建议用管理员权限启动 VS Code、PowerShell 或终端
+- 必须在可交互的桌面会话中运行，不能是锁屏、切换用户、无桌面输入权限的后台会话
+- Windows 显示缩放当前按 `100%` 标定
+- UU 当前按固定窗口使用，标定窗口大小为 `1000 x 688`，不是最大化或全屏
+
+当前图像锚点是按下列页面布局校准的：
+
+- UU 首页搜索框
+- 搜索联想结果中的 `学园偶像大师`
+- `学园偶像大师` 的详情页按钮区域
+- 停止加速时的确认弹窗
+
+如果 UU 更新后界面发生明显变化，可能需要重新调整 [app/kaa_scheduler/uu.py](app/kaa_scheduler/uu.py) 中的锚点常量。
+
+## 安装
+
+推荐方式是直接在仓库根目录做可编辑安装：
+
+```powershell
+python -m pip install -e .
+```
+
+这会安装当前项目声明的依赖：
+
+- `pywinauto`
+- `Pillow`
+
+安装后可以直接运行：
+
+```powershell
+python -m kaa_scheduler --help
+```
+
+如果你暂时不想安装到环境里，也可以直接用 `PYTHONPATH` 运行：
+
+```powershell
+$env:PYTHONPATH = (Join-Path $PWD "app")
+python -m kaa_scheduler --help
+```
+
+## 配置
+
+默认配置写在 [app/kaa_scheduler/config.py](app/kaa_scheduler/config.py)，可以通过环境变量覆盖。
+
+| 环境变量 | 默认值 | 说明 |
+| --- | --- | --- |
+| `KAA_SCHEDULER_UU_EXE` | `C:\Program Files (x86)\Netease\UU\uu_launcher.exe` | UU 启动器路径 |
+| `KAA_SCHEDULER_UU_PROCESS` | `uu.exe` | UU 进程名 |
+| `KAA_SCHEDULER_UU_WINDOW` | `UU加速器` | UU 主窗口标题关键字 |
+| `KAA_SCHEDULER_TARGET_GAME` | `学园偶像大师` | 目标游戏名 |
+| `KAA_SCHEDULER_KAA_EXE` | `D:\Programs\kaa-bootstrap-0.5.1\kaa.exe` | kaa 可执行文件路径 |
+| `KAA_SCHEDULER_KAA_PROCESS` | `kaa.exe` | kaa 进程名 |
+| `KAA_SCHEDULER_KAA_WORKDIR` | `D:\Programs\kaa-bootstrap-0.5.1` | kaa 工作目录 |
+| `KAA_SCHEDULER_TIMEOUT` | `1200` | `kaa.wait_until_finish` 的默认超时时间，单位秒 |
+
+当前版本还有两个重要约束：
+
+- `kaa.exe` 启动后，默认会直接运行当前启用的默认配置
+- `v1` 不处理 `config.json` 覆盖逻辑
+
+## 命令说明
+
+CLI 定义在 [app/kaa_scheduler/cli.py](app/kaa_scheduler/cli.py)。
+
+### `run`
+
+执行完整主链路：
+
+1. `uu.ensure_started`
+2. `uu.attach_window`
+3. `uu.ensure_target_accelerating`
+4. `kaa.launch`
+5. `kaa.wait_until_finish`
+6. `uu.stop_target_acceleration`
+
+示例：
+
+```powershell
+python -m kaa_scheduler run
+python -m kaa_scheduler run --dry-run
+python -m kaa_scheduler run --timeout 1800
+python -m kaa_scheduler run --log-level DEBUG
+```
+
+### `probe-uu`
+
+只验证 UU 这一侧是否能启动、附着窗口、读取状态：
+
+```powershell
+python -m kaa_scheduler probe-uu
+python -m kaa_scheduler probe-uu --dry-run
+```
+
+### `probe-kaa`
+
+只验证 kaa 是否能启动并正常退出：
+
+```powershell
+python -m kaa_scheduler probe-kaa
+python -m kaa_scheduler probe-kaa --dry-run
+```
+
+### 通用参数
+
+- `--dry-run`：不真正启动或点击外部程序，只验证链路是否能走通
+- `--timeout <秒>`：覆盖默认超时时间
+- `--log-level <级别>`：日志级别，可选 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`
+
+## 建议测试顺序
+
+第一次在新环境里跑，建议按下面顺序检查：
+
+```powershell
+python -m kaa_scheduler --help
+python -m kaa_scheduler run --dry-run
+python -m kaa_scheduler probe-uu
+python -m kaa_scheduler probe-kaa
+python -m kaa_scheduler run
+```
+
+如果最后一步成功，说明当前机器上的完整自动化链路已经可用。
+
+## PowerShell 脚本
+
+### 手动运行脚本
+
+[scripts/run_manual.ps1](scripts/run_manual.ps1) 会自动设置 `PYTHONPATH` 并调用 `python -m kaa_scheduler run`。
+
+示例：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_manual.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_manual.ps1 --dry-run
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\run_manual.ps1 --timeout 1800
+```
+
+### 安装计划任务
+
+[scripts/install_task_scheduler.ps1](scripts/install_task_scheduler.ps1) 会创建一个每日计划任务，默认每天 `05:00` 执行一次。
+
+示例：
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task_scheduler.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task_scheduler.ps1 -TaskName "kaa-scheduler-daily" -StartTime "05:00"
+```
+
+注意：这个项目的真实运行依赖桌面点击和窗口识别，所以计划任务要满足交互式桌面条件。实际使用时建议确认以下几点：
+
+- 任务运行时用户已经登录
+- 桌面没有锁屏
+- UU 窗口仍可被正常显示和接收输入
+- 如有需要，在任务计划程序里检查任务是否按“仅在用户登录时运行”的方式执行
+
+## 日志与输出
+
+每次运行都会在 [logs](logs) 目录下生成一个时间戳日志文件，格式为：
+
+```text
+logs/YYYYMMDD-HHMMSS.log
+```
+
+日志内容包含：
+
+- 每个步骤的开始和结束
+- 失败步骤的异常堆栈
+- `kaa` 的启动与退出信息
+- `UU` 的状态识别结果
+
+## 当前实现说明
+
+当前 UU 自动化采用的是“Win32 附着 + 图像锚点识别/点击”的组合方案：
+
+- 先用窗口标题附着到 `UU加速器`
+- UI Automation 只作为补充探针
+- 实际页面识别和按钮点击主要依赖固定图像锚点
+
+这也是为什么当前版本对下面几项比较敏感：
+
+- Windows 显示缩放
+- UU 窗口尺寸
+- UU 页面布局变化
+
+## 常见问题
+
+### 1. 提示 `Desktop mouse control is unavailable in the current session`
+
+说明当前会话没有桌面输入控制权。优先检查：
+
+- 是否以管理员权限启动终端或 VS Code
+- 是否在真实桌面会话中运行
+- 是否处于锁屏、远程切换用户或无交互输入权限的状态
+
+### 2. `probe-uu` 能附着窗口，但 `run` 找不到目标页
+
+优先检查：
+
+- UU 是否仍是固定窗口，而不是最大化
+- Windows 缩放是否仍然是 `100%`
+- 首页搜索框、搜索结果和目标游戏详情页布局是否与当前版本一致
+
+### 3. `kaa` 没有按预期执行
+
+优先检查：
+
+- `KAA_SCHEDULER_KAA_EXE` 路径是否正确
+- `KAA_SCHEDULER_KAA_WORKDIR` 是否正确
+- `kaa.exe` 是否仍保持“启动后自动运行默认启用配置”的行为
+
+### 4. `kaa-scheduler` 命令找不到
+
+如果你的 Python Scripts 目录没有加入 `PATH`，直接使用下面这类命令即可：
+
+```powershell
+python -m kaa_scheduler run --dry-run
+```
+
+## 仓库结构
+
+```text
+app/kaa_scheduler/
+	cli.py
+	scheduler.py
+	uu.py
+	kaa.py
+	config.py
+	models.py
+	infra/
+scripts/
+tests/
+logs/
+```
+
+## 当前版本边界
+
+- 当前实现是为 `学园偶像大师` 这一路径校准的
+- 当前图像锚点基于 `1000 x 688` 的 UU 固定窗口
+- 当前计划任务脚本只负责创建任务，不负责处理更细的交互式桌面策略
+
+如果后续要扩到更多游戏、更多窗口布局或更强的抗 UI 变化能力，下一步应当把当前锚点配置抽成独立配置层。
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task_scheduler.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task_scheduler.ps1 -TaskName kaa-scheduler-daily -StartTime 05:00
+```
+
+注意：这个项目的真实运行依赖桌面点击和窗口识别，所以计划任务要满足交互式桌面条件。实际使用时建议确认以下几点：
+
+- 任务运行时用户已经登录
+- 桌面没有锁屏
+- UU 窗口仍可被正常显示和接收输入
+- 如有需要，在任务计划程序里检查任务是否按“仅在用户登录时运行”的方式执行
+
+## 日志与输出
+
+每次运行都会在 [logs](logs) 目录下生成一个时间戳日志文件，格式为：
+
+```text
+logs/YYYYMMDD-HHMMSS.log
+```
+
+日志内容包含：
+
+- 每个步骤的开始和结束
+- 失败步骤的异常堆栈
+- `kaa` 的启动与退出信息
+- `UU` 的状态识别结果
+
+## 当前实现说明
+
+当前 UU 自动化采用的是“Win32 附着 + 图像锚点识别/点击”的组合方案：
+
+- 先用窗口标题附着到 `UU加速器`
+- UI Automation 只作为补充探针
+- 实际页面识别和按钮点击主要依赖固定图像锚点
+
+这也是为什么当前版本对下面几项比较敏感：
+
+- Windows 显示缩放
+- UU 窗口尺寸
+- UU 页面布局变化
+
+## 常见问题
+
+### 1. 提示 `Desktop mouse control is unavailable in the current session`
+
+说明当前会话没有桌面输入控制权。优先检查：
+
+- 是否以管理员权限启动终端或 VS Code
+- 是否在真实桌面会话中运行
+- 是否处于锁屏、远程切换用户或无交互输入权限的状态
+
+### 2. `probe-uu` 能附着窗口，但 `run` 找不到目标页
+
+优先检查：
+
+- UU 是否仍是固定窗口，而不是最大化
+- Windows 缩放是否仍然是 `100%`
+- 首页搜索框、搜索结果和目标游戏详情页布局是否与当前版本一致
+
+### 3. `kaa` 没有按预期执行
+
+优先检查：
+
+- `KAA_SCHEDULER_KAA_EXE` 路径是否正确
+- `KAA_SCHEDULER_KAA_WORKDIR` 是否正确
+- `kaa.exe` 是否仍保持“启动后自动运行默认启用配置”的行为
+
+### 4. `kaa-scheduler` 命令找不到
+
+如果你的 Python Scripts 目录没有加入 `PATH`，直接使用下面这类命令即可：
+
+```powershell
+python -m kaa_scheduler run --dry-run
+```
+
+## 仓库结构
+
+```text
+app/kaa_scheduler/
+	cli.py
+	scheduler.py
+	uu.py
+	kaa.py
+	config.py
+	models.py
+	infra/
+scripts/
+tests/
+logs/
+```
+
+## 当前版本边界
+
+- 当前实现是为 `学园偶像大师` 这一路径校准的
+- 当前图像锚点基于 `1000 x 688` 的 UU 固定窗口
+- 当前计划任务脚本只负责创建任务，不负责处理更细的交互式桌面策略
+
+如果后续要扩到更多游戏、更多窗口布局或更强的抗 UI 变化能力，下一步应当把当前锚点配置抽成独立配置层。

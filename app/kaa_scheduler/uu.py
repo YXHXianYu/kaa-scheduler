@@ -1,0 +1,389 @@
+"""UU process and window probe helpers."""
+
+import time
+from dataclasses import dataclass
+from logging import Logger
+from typing import Iterable, Optional, Tuple
+
+from kaa_scheduler.config import AppConfig
+from kaa_scheduler.models import UuStatus
+from kaa_scheduler.infra.process import is_process_running, launch_process, wait_for_process_start
+from kaa_scheduler.infra.window import (
+    bring_window_to_front,
+    capture_window_image,
+    click_window_reference_point,
+    click_uia_control,
+    find_first_window_by_title_contains,
+    has_uia_control,
+    is_uia_available,
+    list_uia_control_names,
+    send_foreground_keys,
+    send_foreground_text,
+    wait_for_window,
+)
+
+REFERENCE_WIDTH = 1000
+REFERENCE_HEIGHT = 688
+
+
+@dataclass(frozen=True)
+class UuAnchor:
+    """One anchor point measured against the fixed UU window screenshot."""
+
+    x: int
+    y: int
+
+
+SEARCH_BOX_ANCHOR = UuAnchor(826, 49)
+SEARCH_FIRST_RESULT_ANCHOR = UuAnchor(809, 104)
+START_GAME_BUTTON_SAMPLES = (UuAnchor(70, 347), UuAnchor(95, 347))
+ACTION_BUTTON_STOP_SAMPLES = (UuAnchor(184, 347), UuAnchor(190, 347))
+ACTION_BUTTON_CLICK_ANCHOR = UuAnchor(221, 347)
+STOP_CONFIRM_BUTTON_ANCHOR = UuAnchor(431, 455)
+ACCELERATING_STATUS_BAR_SAMPLES = (UuAnchor(494, 130), UuAnchor(555, 130))
+TARGET_GAME_BUTTON_RGB = (70, 225, 220)
+STOP_BUTTON_RGB = (96, 108, 186)
+STOP_CONFIRM_BUTTON_RGB = (0, 210, 196)
+ACCELERATING_BAR_RGB = (28, 33, 71)
+
+
+class UuController:
+    """Encapsulate UU launch, attach and basic status probing."""
+
+    def __init__(self, config: AppConfig, logger: Logger) -> None:
+        self.config = config
+        self.logger = logger
+
+    @staticmethod
+    def _color_distance(left: Tuple[int, int, int], right: Tuple[int, int, int]) -> int:
+        return sum(abs(left[index] - right[index]) for index in range(3))
+
+    @classmethod
+    def _sample_matches_reference(
+        cls,
+        sample: Optional[Tuple[int, int, int]],
+        reference: Tuple[int, int, int],
+        max_distance: int,
+    ) -> bool:
+        if sample is None:
+            return False
+        return cls._color_distance(sample, reference) <= max_distance
+
+    @classmethod
+    def _looks_like_target_game_page_from_samples(
+        cls,
+        start_button_samples: Iterable[Optional[Tuple[int, int, int]]],
+    ) -> bool:
+        return any(
+            cls._sample_matches_reference(sample, TARGET_GAME_BUTTON_RGB, max_distance=140)
+            for sample in start_button_samples
+        )
+
+    @classmethod
+    def _looks_like_stop_button_from_samples(
+        cls,
+        action_button_samples: Iterable[Optional[Tuple[int, int, int]]],
+    ) -> bool:
+        return any(
+            cls._sample_matches_reference(sample, STOP_BUTTON_RGB, max_distance=80)
+            for sample in action_button_samples
+        )
+
+    @classmethod
+    def _looks_like_stop_confirm_button_sample(
+        cls,
+        sample: Optional[Tuple[int, int, int]],
+    ) -> bool:
+        return cls._sample_matches_reference(sample, STOP_CONFIRM_BUTTON_RGB, max_distance=40)
+
+    @classmethod
+    def _looks_like_accelerating_bar_from_samples(
+        cls,
+        bar_samples: Iterable[Optional[Tuple[int, int, int]]],
+    ) -> bool:
+        return any(
+            cls._sample_matches_reference(sample, ACCELERATING_BAR_RGB, max_distance=60)
+            for sample in bar_samples
+        )
+
+    @staticmethod
+    def _image_sample_rgb(image, anchor: UuAnchor) -> Optional[Tuple[int, int, int]]:
+        x = min(max(round((anchor.x / REFERENCE_WIDTH) * image.width), 0), image.width - 1)
+        y = min(max(round((anchor.y / REFERENCE_HEIGHT) * image.height), 0), image.height - 1)
+        pixel = image.getpixel((x, y))
+        if isinstance(pixel, int):
+            return (pixel, pixel, pixel)
+        if len(pixel) >= 3:
+            return (pixel[0], pixel[1], pixel[2])
+        return None
+
+    def _capture_anchor_samples(
+        self,
+        window,
+        anchors: Iterable[UuAnchor],
+    ) -> Iterable[Optional[Tuple[int, int, int]]]:
+        image = capture_window_image(window)
+        return [self._image_sample_rgb(image, anchor) for anchor in anchors]
+
+    def _find_attached_window(self):
+        window = find_first_window_by_title_contains(self.config.uu_window_title)
+        if window is None:
+            raise RuntimeError("UU window is not attached.")
+        return window
+
+    def _build_visual_status(self, window) -> Optional[UuStatus]:
+        image = capture_window_image(window)
+        start_button_samples = [self._image_sample_rgb(image, anchor) for anchor in START_GAME_BUTTON_SAMPLES]
+        action_button_samples = [self._image_sample_rgb(image, anchor) for anchor in ACTION_BUTTON_STOP_SAMPLES]
+        bar_samples = [self._image_sample_rgb(image, anchor) for anchor in ACCELERATING_STATUS_BAR_SAMPLES]
+
+        if not self._looks_like_target_game_page_from_samples(start_button_samples):
+            return None
+
+        if self._looks_like_stop_button_from_samples(action_button_samples) and self._looks_like_accelerating_bar_from_samples(bar_samples):
+            return UuStatus(
+                process_running=True,
+                window_attached=True,
+                accelerating_target=True,
+                active_game_name=self.config.target_game_name,
+                message="Detected the target game acceleration page through window image anchors.",
+            )
+
+        return UuStatus(
+            process_running=True,
+            window_attached=True,
+            accelerating_target=False,
+            active_game_name=self.config.target_game_name,
+            message="Detected the target game page through window image anchors, but acceleration is not active.",
+        )
+
+    def _click_anchor(self, window, anchor: UuAnchor) -> None:
+        try:
+            click_window_reference_point(window, anchor.x, anchor.y, REFERENCE_WIDTH, REFERENCE_HEIGHT)
+        except RuntimeError as exc:
+            raise RuntimeError("Failed to click the UU image anchor: " + str(exc)) from exc
+
+    def _has_stop_confirm_dialog(self, window) -> bool:
+        image = capture_window_image(window)
+        confirm_button_sample = self._image_sample_rgb(image, STOP_CONFIRM_BUTTON_ANCHOR)
+        return self._looks_like_stop_confirm_button_sample(confirm_button_sample)
+
+    def _open_target_game_page(self) -> None:
+        window = self._find_attached_window()
+        bring_window_to_front(window)
+        self._click_anchor(window, SEARCH_BOX_ANCHOR)
+        time.sleep(0.2)
+        send_foreground_keys("^a")
+        time.sleep(0.1)
+        send_foreground_keys("{BACKSPACE}")
+        time.sleep(0.1)
+        send_foreground_text(self.config.target_game_name)
+        time.sleep(0.8)
+        self._click_anchor(window, SEARCH_FIRST_RESULT_ANCHOR)
+
+    def _wait_for_target_game_page(self, timeout_seconds: float = 8.0) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            window = find_first_window_by_title_contains(self.config.uu_window_title)
+            if window is not None:
+                try:
+                    visual_status = self._build_visual_status(window)
+                except RuntimeError:
+                    visual_status = None
+                if visual_status is not None:
+                    return True
+            time.sleep(0.5)
+        return False
+
+    def _wait_for_accelerating_state(self, timeout_seconds: float = 8.0) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            window = find_first_window_by_title_contains(self.config.uu_window_title)
+            if window is not None:
+                try:
+                    visual_status = self._build_visual_status(window)
+                except RuntimeError:
+                    visual_status = None
+                if visual_status is not None and visual_status.accelerating_target is True:
+                    return True
+            time.sleep(0.5)
+        return False
+
+    def _wait_for_stopped_state(self, timeout_seconds: float = 8.0) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            status = self.get_status()
+            if status.window_attached and status.accelerating_target is not True:
+                return True
+            time.sleep(0.5)
+        return False
+
+    def ensure_started(self, dry_run: bool = False) -> UuStatus:
+        """Ensure that UU is running, launching it if needed."""
+
+        if is_process_running(self.config.uu_process_name):
+            return self.get_status()
+
+        if dry_run:
+            message = "dry-run: skipped launching UU"
+            self.logger.info(message)
+            return UuStatus(False, False, None, message=message)
+
+        if not self.config.uu_exe_path.exists():
+            raise FileNotFoundError("UU executable was not found: " + str(self.config.uu_exe_path))
+
+        launch_process([str(self.config.uu_exe_path)])
+        self.logger.info("UU launch command issued.")
+
+        if not wait_for_process_start(self.config.uu_process_name, timeout_seconds=15):
+            raise RuntimeError("UU launch command was issued, but the process did not appear in time.")
+
+        return self.get_status()
+
+    def attach_window(
+        self,
+        timeout_seconds: int = 10,
+        bring_to_front_flag: bool = True,
+        require_window: bool = False,
+    ) -> UuStatus:
+        """Attach to the UU main window by title."""
+
+        window = wait_for_window(self.config.uu_window_title, timeout_seconds)
+        if window is None:
+            if require_window:
+                raise RuntimeError("UU window was not found.")
+            return UuStatus(
+                process_running=is_process_running(self.config.uu_process_name),
+                window_attached=False,
+                accelerating_target=None,
+                message="UU window was not found.",
+            )
+
+        if bring_to_front_flag:
+            bring_window_to_front(window)
+
+        return UuStatus(
+            process_running=True,
+            window_attached=True,
+            accelerating_target=None,
+            message="Attached to UU window: " + window.title,
+        )
+
+    def get_status(self) -> UuStatus:
+        """Return the current coarse-grained UU state."""
+
+        process_running = is_process_running(self.config.uu_process_name)
+        window = find_first_window_by_title_contains(self.config.uu_window_title)
+        if not process_running:
+            message = "UU process is not running."
+        elif window is None:
+            message = "UU process is running, but the main window was not found."
+        else:
+            message = "Target acceleration detection is not implemented yet."
+        accelerating_target = None
+        active_game_name = None
+
+        if window is not None and is_uia_available():
+            control_names = list_uia_control_names(self.config.uu_window_title, limit=120)
+            has_stop_button = any("停止加速" in name for name in control_names)
+            has_target_game = any(self.config.target_game_name in name for name in control_names)
+
+            if has_stop_button and has_target_game:
+                accelerating_target = True
+                active_game_name = self.config.target_game_name
+                message = "Detected target acceleration page through UI Automation."
+            elif has_stop_button:
+                message = "Detected an acceleration page, but the target game name was not confirmed."
+            else:
+                message = "UI Automation is available, but the target acceleration controls were not found yet."
+
+        if window is not None:
+            try:
+                visual_status = self._build_visual_status(window)
+            except RuntimeError:
+                visual_status = None
+
+            if visual_status is not None:
+                accelerating_target = visual_status.accelerating_target
+                active_game_name = visual_status.active_game_name
+                message = visual_status.message
+
+        return UuStatus(
+            process_running=process_running,
+            window_attached=window is not None,
+            accelerating_target=accelerating_target,
+            message=message,
+            active_game_name=active_game_name,
+        )
+
+    def ensure_target_accelerating(self, dry_run: bool = False) -> UuStatus:
+        """Ensure that UU is accelerating the target game."""
+
+        status = self.get_status()
+        if status.accelerating_target is True:
+            return status
+
+        if dry_run:
+            message = "dry-run: skipped UU target acceleration workflow"
+            self.logger.info(message)
+            return UuStatus(status.process_running, status.window_attached, None, message=message)
+
+        self.attach_window(require_window=True)
+        self._open_target_game_page()
+
+        if not self._wait_for_target_game_page():
+            raise RuntimeError("Failed to open the target game page in UU.")
+
+        window = self._find_attached_window()
+        visual_status = self._build_visual_status(window)
+        if visual_status is None:
+            raise RuntimeError("The target game page could not be verified after the UU search flow.")
+        if visual_status.accelerating_target is True:
+            return visual_status
+
+        self._click_anchor(window, ACTION_BUTTON_CLICK_ANCHOR)
+
+        if not self._wait_for_accelerating_state():
+            raise RuntimeError("The target game page was opened, but UU did not enter the accelerating state in time.")
+
+        return self.get_status()
+
+    def stop_target_acceleration(self, dry_run: bool = False) -> UuStatus:
+        """Stop the target acceleration session after kaa finishes."""
+
+        status = self.get_status()
+        if dry_run:
+            message = "dry-run: skipped stopping UU acceleration"
+            self.logger.info(message)
+            return UuStatus(status.process_running, status.window_attached, status.accelerating_target, message=message)
+
+        self.attach_window(require_window=True)
+
+        if status.accelerating_target is not True:
+            self._open_target_game_page()
+            if not self._wait_for_target_game_page():
+                raise RuntimeError("Failed to reopen the target game page before stopping UU acceleration.")
+
+        window = self._find_attached_window()
+        visual_status = self._build_visual_status(window)
+        if visual_status is None:
+            raise RuntimeError("The target game page could not be verified before stopping UU acceleration.")
+        if visual_status.accelerating_target is not True:
+            return visual_status
+
+        self._click_anchor(window, ACTION_BUTTON_CLICK_ANCHOR)
+        time.sleep(0.5)
+
+        if self._has_stop_confirm_dialog(window):
+            self._click_anchor(window, STOP_CONFIRM_BUTTON_ANCHOR)
+
+        if not self._wait_for_stopped_state():
+            raise RuntimeError("The stop button was clicked, but UU still looks like it is accelerating the target game.")
+
+        return UuStatus(
+            process_running=status.process_running,
+            window_attached=True,
+            accelerating_target=False,
+            active_game_name=self.config.target_game_name,
+            message="Clicked the stop acceleration anchor on the target game page.",
+        )
