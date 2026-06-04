@@ -11,6 +11,7 @@ from kaa_scheduler.infra.process import is_process_running, launch_process, list
 
 
 WORKER_COMMAND_FRAGMENT = "-m kaa.main.cli"
+START_IMMEDIATELY_ARGUMENT = "--start-immidiately"
 
 
 class KaaController:
@@ -76,7 +77,10 @@ class KaaController:
         if not self.config.kaa_working_dir.exists():
             raise FileNotFoundError("kaa working directory was not found: " + str(self.config.kaa_working_dir))
 
-        self._process = launch_process([str(self.config.kaa_exe_path)], cwd=self.config.kaa_working_dir)
+        self._process = launch_process(
+            [str(self.config.kaa_exe_path), START_IMMEDIATELY_ARGUMENT],
+            cwd=self.config.kaa_working_dir,
+        )
         worker = self._wait_for_worker_start()
         self._worker_pid = int(worker["pid"])
         self.logger.info("kaa launched: launcher_pid=%s worker_pid=%s", self._process.pid, self._worker_pid)

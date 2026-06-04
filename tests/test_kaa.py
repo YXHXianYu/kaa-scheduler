@@ -2,12 +2,12 @@ import logging
 import sys
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
 from kaa_scheduler.config import build_default_config
-from kaa_scheduler.kaa import KaaController
+from kaa_scheduler.kaa import KaaController, START_IMMEDIATELY_ARGUMENT
 
 
 class KaaControllerTests(unittest.TestCase):
@@ -53,6 +53,27 @@ class KaaControllerTests(unittest.TestCase):
 
         self.assertIsNotNone(worker)
         self.assertEqual(worker["pid"], "100")
+
+    def test_launch_passes_start_immediately_argument(self) -> None:
+        config = build_default_config(Path(__file__).resolve().parents[1])
+        logger = logging.getLogger("test_kaa_launch_args")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+
+        controller = KaaController(config, logger)
+        fake_process = MagicMock(pid=123)
+
+        with patch("pathlib.Path.exists", return_value=True), \
+             patch("kaa_scheduler.kaa.launch_process", return_value=fake_process) as launch_process_mock, \
+             patch.object(controller, "_wait_for_worker_start", return_value={"pid": "456"}):
+            status = controller.launch(dry_run=False)
+
+        launch_process_mock.assert_called_once_with(
+            [str(config.kaa_exe_path), START_IMMEDIATELY_ARGUMENT],
+            cwd=config.kaa_working_dir,
+        )
+        self.assertEqual(status.pid, 456)
+        self.assertTrue(status.process_running)
 
 
 if __name__ == "__main__":
