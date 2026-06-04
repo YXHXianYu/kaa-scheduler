@@ -12,6 +12,7 @@ class RunOptions:
     timeout_seconds: int
     log_level: str
     dry_run: bool = False
+    step_name: Optional[str] = None
 
 
 @dataclass

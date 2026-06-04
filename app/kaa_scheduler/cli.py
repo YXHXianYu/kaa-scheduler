@@ -28,6 +28,8 @@ def build_parser() -> argparse.ArgumentParser:
     subparsers.add_parser("run", parents=[common], help="Run the full scheduler flow")
     subparsers.add_parser("probe-uu", parents=[common], help="Probe UU launch and window attach only")
     subparsers.add_parser("probe-kaa", parents=[common], help="Probe kaa launch and wait only")
+    step_parser = subparsers.add_parser("step", parents=[common], help="Run a single scheduler step")
+    step_parser.add_argument("step_name", help="Step name such as uu.ensure_target_accelerating or kaa.launch")
     return parser
 
 
@@ -52,6 +54,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         timeout_seconds=args.timeout or config.default_timeout_seconds,
         log_level=args.log_level,
         dry_run=args.dry_run,
+        step_name=getattr(args, "step_name", None),
     )
 
     scheduler = Scheduler(config, logger)

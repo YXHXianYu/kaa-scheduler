@@ -2,6 +2,13 @@
 
 `kaa-scheduler` 是一个面向 Windows 的 UU + kaa 自动编排工具，目标是把每日流程收敛成一条可重复执行的链路。
 
+## 速查表
+
+- `python -m kaa_scheduler run`：执行完整主链路
+- `python -m kaa_scheduler probe-uu`：只验证 UU 侧探测
+- `python -m kaa_scheduler probe-kaa`：只验证 kaa 侧探测
+- `python -m kaa_scheduler step <step_name>`：只执行一个 step
+
 当前版本已经实机跑通以下流程：
 
 1. 启动或附着 UU
@@ -13,7 +20,7 @@
 ## 当前状态
 
 - 已实现 CLI 入口、日志、单实例锁、UU 控制、kaa 控制、计划任务脚本
-- 已支持 `run`、`probe-uu`、`probe-kaa` 三个命令
+- 已支持 `run`、`probe-uu`、`probe-kaa`、`step` 四个命令
 - 已支持 `--dry-run`，便于先验证流程而不真正点击外部程序
 - 已在当前仓库对应机器上完成真实端到端验证
 
@@ -124,6 +131,27 @@ python -m kaa_scheduler probe-uu --dry-run
 python -m kaa_scheduler probe-kaa
 python -m kaa_scheduler probe-kaa --dry-run
 ```
+
+### `step`
+
+只执行一个具名 step：
+
+```powershell
+python -m kaa_scheduler step kaa.launch --dry-run
+python -m kaa_scheduler step uu.ensure_started
+python -m kaa_scheduler step uu.ensure_target_accelerating
+python -m kaa_scheduler step uu.stop_target_acceleration
+```
+
+当前支持的 step 名称有：
+
+- `uu.ensure_started`
+- `uu.attach_window`
+- `uu.get_status`
+- `uu.ensure_target_accelerating`
+- `uu.stop_target_acceleration`
+- `kaa.launch`
+- `kaa.wait_until_finish`
 
 ### 通用参数
 

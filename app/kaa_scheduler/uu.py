@@ -362,17 +362,15 @@ class UuController:
 
         self.attach_window(require_window=True)
 
-        if status.accelerating_target is not True:
-            self._open_target_game_page()
-            if not self._wait_for_target_game_page():
-                raise RuntimeError("Failed to reopen the target game page before stopping UU acceleration.")
-
         window = self._find_attached_window()
         visual_status = self._build_visual_status(window)
-        if visual_status is None:
-            raise RuntimeError("The target game page could not be verified before stopping UU acceleration.")
-        if visual_status.accelerating_target is not True:
+        if visual_status is not None and visual_status.accelerating_target is not True:
             return visual_status
+
+        if visual_status is None:
+            self.logger.info(
+                "Stop flow could not re-verify the current page, assuming UU is still on the target acceleration page."
+            )
 
         self._click_anchor(window, ACTION_BUTTON_CLICK_ANCHOR)
         time.sleep(0.5)

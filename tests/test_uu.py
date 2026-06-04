@@ -2,6 +2,7 @@ import logging
 import sys
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "app"))
 
@@ -58,6 +59,30 @@ class UuControllerTests(unittest.TestCase):
         self.assertFalse(
             UuController._looks_like_stop_confirm_button_sample((16, 22, 43))
         )
+
+    def test_stop_target_acceleration_does_not_reopen_target_page(self) -> None:
+        config = build_default_config(Path(__file__).resolve().parents[1])
+        logger = logging.getLogger("test_uu_stop")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+
+        controller = UuController(config, logger)
+        assumed_status = UuStatus(True, True, None, message="status not stable")
+
+        with patch.object(controller, "get_status", return_value=assumed_status), patch.object(
+            controller, "attach_window", return_value=UuStatus(True, True, None, message="attached")
+        ), patch.object(controller, "_find_attached_window", return_value=object()), patch.object(
+            controller, "_build_visual_status", return_value=None
+        ), patch.object(controller, "_click_anchor") as click_anchor, patch.object(
+            controller, "_has_stop_confirm_dialog", return_value=False
+        ), patch.object(controller, "_wait_for_stopped_state", return_value=True), patch.object(
+            controller, "_open_target_game_page"
+        ) as reopen_target_page:
+            result = controller.stop_target_acceleration(dry_run=False)
+
+        reopen_target_page.assert_not_called()
+        click_anchor.assert_called()
+        self.assertFalse(result.accelerating_target)
 
 
 if __name__ == "__main__":
