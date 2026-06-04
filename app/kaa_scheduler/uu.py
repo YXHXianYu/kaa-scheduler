@@ -131,6 +131,35 @@ class UuController:
             raise RuntimeError("UU window is not attached.")
         return window
 
+    def _is_current_page_accelerating_any_game(self, window) -> bool:
+        image = capture_window_image(window)
+        action_button_samples = [self._image_sample_rgb(image, anchor) for anchor in ACTION_BUTTON_STOP_SAMPLES]
+        bar_samples = [self._image_sample_rgb(image, anchor) for anchor in ACCELERATING_STATUS_BAR_SAMPLES]
+        return self._looks_like_stop_button_from_samples(action_button_samples) and self._looks_like_accelerating_bar_from_samples(bar_samples)
+
+    def _wait_for_current_page_stop_state(self, timeout_seconds: float = 8.0) -> bool:
+        deadline = time.monotonic() + timeout_seconds
+        while time.monotonic() < deadline:
+            window = find_first_window_by_title_contains(self.config.uu_window_title)
+            if window is not None:
+                try:
+                    if not self._is_current_page_accelerating_any_game(window):
+                        return True
+                except RuntimeError:
+                    pass
+            time.sleep(0.5)
+        return False
+
+    def _stop_current_page_acceleration(self, window) -> None:
+        self._click_anchor(window, ACTION_BUTTON_CLICK_ANCHOR)
+        time.sleep(0.5)
+
+        if self._has_stop_confirm_dialog(window):
+            self._click_anchor(window, STOP_CONFIRM_BUTTON_ANCHOR)
+
+        if not self._wait_for_current_page_stop_state():
+            raise RuntimeError("The stop button was clicked, but UU still looks like it is accelerating the current game page.")
+
     def _build_visual_status(self, window) -> Optional[UuStatus]:
         image = capture_window_image(window)
         start_button_samples = [self._image_sample_rgb(image, anchor) for anchor in START_GAME_BUTTON_SAMPLES]
@@ -329,6 +358,12 @@ class UuController:
             return UuStatus(status.process_running, status.window_attached, None, message=message)
 
         self.attach_window(require_window=True)
+        window = self._find_attached_window()
+
+        if self._is_current_page_accelerating_any_game(window):
+            self.logger.info("Current UU page is already accelerating another game, stopping it before opening the target game page.")
+            self._stop_current_page_acceleration(window)
+
         self._open_target_game_page()
 
         if not self._wait_for_target_game_page():
@@ -372,11 +407,7 @@ class UuController:
                 "Stop flow could not re-verify the current page, assuming UU is still on the target acceleration page."
             )
 
-        self._click_anchor(window, ACTION_BUTTON_CLICK_ANCHOR)
-        time.sleep(0.5)
-
-        if self._has_stop_confirm_dialog(window):
-            self._click_anchor(window, STOP_CONFIRM_BUTTON_ANCHOR)
+        self._stop_current_page_acceleration(window)
 
         if not self._wait_for_stopped_state():
             raise RuntimeError("The stop button was clicked, but UU still looks like it is accelerating the target game.")
