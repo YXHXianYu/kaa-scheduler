@@ -9,8 +9,10 @@ description = "Windows scheduler for the UU + kaa daily automation flow"
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+	"numpy>=2.0.0",
 	"Pillow>=10.0.0",
 	"pywinauto>=0.6.8",
+	"rapidocr_onnxruntime>=1.4.4",
 ]
 
 [project.scripts]
@@ -21,3 +23,6 @@ package-dir = {"" = "app"}
 
 [tool.setuptools.packages.find]
 where = ["app"]
+
+[tool.pyright]
+extraPaths = ["app"]

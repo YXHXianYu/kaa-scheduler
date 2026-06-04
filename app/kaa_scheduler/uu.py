@@ -1,5 +1,6 @@
 """UU process and window probe helpers."""
 
+import re
 import time
 from dataclasses import dataclass
 from logging import Logger
@@ -21,9 +22,12 @@ from kaa_scheduler.infra.window import (
     send_foreground_text,
     wait_for_window,
 )
+from PIL import Image, ImageOps  # pyright: ignore[reportMissingImports]
 
 REFERENCE_WIDTH = 1000
 REFERENCE_HEIGHT = 688
+TITLE_TEXT_REGION = (38, 220, 276, 320)
+STOP_BUTTON_TEXT_REGION = (122, 326, 278, 368)
 
 
 @dataclass(frozen=True)
@@ -36,27 +40,55 @@ class UuAnchor:
 
 SEARCH_BOX_ANCHOR = UuAnchor(826, 49)
 SEARCH_FIRST_RESULT_ANCHOR = UuAnchor(809, 104)
-START_GAME_BUTTON_SAMPLES = (UuAnchor(70, 347), UuAnchor(95, 347))
 ACTION_BUTTON_STOP_SAMPLES = (UuAnchor(184, 347), UuAnchor(190, 347))
 ACTION_BUTTON_CLICK_ANCHOR = UuAnchor(221, 347)
 STOP_CONFIRM_BUTTON_ANCHOR = UuAnchor(431, 455)
 ACCELERATING_STATUS_BAR_SAMPLES = (UuAnchor(494, 130), UuAnchor(555, 130))
-TARGET_GAME_BUTTON_RGB = (70, 225, 220)
 STOP_BUTTON_RGB = (96, 108, 186)
 STOP_CONFIRM_BUTTON_RGB = (0, 210, 196)
 ACCELERATING_BAR_RGB = (28, 33, 71)
+LANCZOS_RESAMPLE = getattr(Image, "Resampling", Image).LANCZOS
 
 
 class UuController:
     """Encapsulate UU launch, attach and basic status probing."""
 
+    _ocr_engine = None
+
     def __init__(self, config: AppConfig, logger: Logger) -> None:
         self.config = config
         self.logger = logger
 
+    @classmethod
+    def _get_ocr_engine(cls):
+        if cls._ocr_engine is not None:
+            return cls._ocr_engine
+        try:
+            from rapidocr_onnxruntime import RapidOCR  # pyright: ignore[reportMissingImports]
+        except ImportError:  # pragma: no cover - depends on local environment
+            return None
+        cls._ocr_engine = RapidOCR()
+        return cls._ocr_engine
+
     @staticmethod
     def _color_distance(left: Tuple[int, int, int], right: Tuple[int, int, int]) -> int:
         return sum(abs(left[index] - right[index]) for index in range(3))
+
+    @staticmethod
+    def _normalize_ocr_text(text: str) -> str:
+        return re.sub(r"\s+", "", text).lower()
+
+    def _is_target_game_title_text(self, text: Optional[str]) -> bool:
+        if not text:
+            return False
+        normalized_text = self._normalize_ocr_text(text)
+        normalized_target = self._normalize_ocr_text(self.config.target_game_name)
+        return normalized_target in normalized_text
+
+    def _has_stop_button_text(self, text: Optional[str]) -> bool:
+        if not text:
+            return False
+        return "停止加速" in self._normalize_ocr_text(text)
 
     @classmethod
     def _sample_matches_reference(
@@ -68,16 +100,6 @@ class UuController:
         if sample is None:
             return False
         return cls._color_distance(sample, reference) <= max_distance
-
-    @classmethod
-    def _looks_like_target_game_page_from_samples(
-        cls,
-        start_button_samples: Iterable[Optional[Tuple[int, int, int]]],
-    ) -> bool:
-        return any(
-            cls._sample_matches_reference(sample, TARGET_GAME_BUTTON_RGB, max_distance=140)
-            for sample in start_button_samples
-        )
 
     @classmethod
     def _looks_like_stop_button_from_samples(
@@ -131,11 +153,64 @@ class UuController:
             raise RuntimeError("UU window is not attached.")
         return window
 
-    def _is_current_page_accelerating_any_game(self, window) -> bool:
+    def _crop_reference_region(self, image, region: Tuple[int, int, int, int]):
+        left, top, right, bottom = region
+        crop_left = min(max(round((left / REFERENCE_WIDTH) * image.width), 0), image.width)
+        crop_top = min(max(round((top / REFERENCE_HEIGHT) * image.height), 0), image.height)
+        crop_right = min(max(round((right / REFERENCE_WIDTH) * image.width), crop_left + 1), image.width)
+        crop_bottom = min(max(round((bottom / REFERENCE_HEIGHT) * image.height), crop_top + 1), image.height)
+        return image.crop((crop_left, crop_top, crop_right, crop_bottom))
+
+    def _read_text_in_region(self, window, region: Tuple[int, int, int, int]) -> Optional[str]:
+        ocr_engine = self._get_ocr_engine()
+        if ocr_engine is None:
+            return None
+
+        try:
+            import numpy  # pyright: ignore[reportMissingImports]
+        except ImportError:  # pragma: no cover - depends on local environment
+            return None
+
         image = capture_window_image(window)
-        action_button_samples = [self._image_sample_rgb(image, anchor) for anchor in ACTION_BUTTON_STOP_SAMPLES]
-        bar_samples = [self._image_sample_rgb(image, anchor) for anchor in ACCELERATING_STATUS_BAR_SAMPLES]
-        return self._looks_like_stop_button_from_samples(action_button_samples) and self._looks_like_accelerating_bar_from_samples(bar_samples)
+        crop = self._crop_reference_region(image, region)
+        grayscale_crop = crop.convert("L")
+        prepared_crop = ImageOps.autocontrast(grayscale_crop).resize(
+            (grayscale_crop.width * 2, grayscale_crop.height * 2),
+            resample=LANCZOS_RESAMPLE,
+        )
+
+        ocr_result, _ = ocr_engine(numpy.array(prepared_crop))
+        if not ocr_result:
+            return None
+
+        text_parts = []
+        for item in ocr_result:
+            if len(item) < 2:
+                continue
+            text = str(item[1]).strip()
+            if text:
+                text_parts.append(text)
+        if not text_parts:
+            return None
+        return " ".join(text_parts)
+
+    def _read_current_page_game_title(self, window) -> Optional[str]:
+        title_text = self._read_text_in_region(window, TITLE_TEXT_REGION)
+        self.logger.info("OCR current UU page title region: %s", title_text or "<none>")
+        return title_text
+
+    def _read_stop_button_text(self, window) -> Optional[str]:
+        stop_button_text = self._read_text_in_region(window, STOP_BUTTON_TEXT_REGION)
+        self.logger.info("OCR current UU stop button region: %s", stop_button_text or "<none>")
+        return stop_button_text
+
+    def _is_current_page_accelerating_any_game(self, window) -> bool:
+        stop_button_text = self._read_stop_button_text(window)
+        return self._has_stop_button_text(stop_button_text)
+
+    def _is_current_page_target_game(self, window) -> bool:
+        title_text = self._read_current_page_game_title(window)
+        return self._is_target_game_title_text(title_text)
 
     def _wait_for_current_page_stop_state(self, timeout_seconds: float = 8.0) -> bool:
         deadline = time.monotonic() + timeout_seconds
@@ -162,11 +237,11 @@ class UuController:
 
     def _build_visual_status(self, window) -> Optional[UuStatus]:
         image = capture_window_image(window)
-        start_button_samples = [self._image_sample_rgb(image, anchor) for anchor in START_GAME_BUTTON_SAMPLES]
         action_button_samples = [self._image_sample_rgb(image, anchor) for anchor in ACTION_BUTTON_STOP_SAMPLES]
         bar_samples = [self._image_sample_rgb(image, anchor) for anchor in ACCELERATING_STATUS_BAR_SAMPLES]
+        title_text = self._read_current_page_game_title(window)
 
-        if not self._looks_like_target_game_page_from_samples(start_button_samples):
+        if not self._is_target_game_title_text(title_text):
             return None
 
         if self._looks_like_stop_button_from_samples(action_button_samples) and self._looks_like_accelerating_bar_from_samples(bar_samples):
@@ -360,7 +435,7 @@ class UuController:
         self.attach_window(require_window=True)
         window = self._find_attached_window()
 
-        if self._is_current_page_accelerating_any_game(window):
+        if self._is_current_page_accelerating_any_game(window) and not self._is_current_page_target_game(window):
             self.logger.info("Current UU page is already accelerating another game, stopping it before opening the target game page.")
             self._stop_current_page_acceleration(window)
 
