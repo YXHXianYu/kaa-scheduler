@@ -2,6 +2,7 @@
 
 import csv
 import io
+import json
 import subprocess
 import time
 from pathlib import Path
@@ -64,3 +65,37 @@ def wait_for_process_exit(process: subprocess.Popen, timeout_seconds: int) -> in
     """Wait for a launched process to exit and return its exit code."""
 
     return process.wait(timeout=timeout_seconds)
+
+
+def list_process_details() -> List[Dict[str, str]]:
+    """Return detailed process records from Win32_Process via PowerShell."""
+
+    command = (
+        "$items = Get-CimInstance Win32_Process | Select-Object ProcessId, ParentProcessId, Name, ExecutablePath, CommandLine; "
+        "$items | ConvertTo-Json -Compress"
+    )
+    result = subprocess.run(
+        ["powershell", "-NoProfile", "-Command", command],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0 or not result.stdout.strip():
+        return []
+
+    payload = json.loads(result.stdout)
+    if isinstance(payload, dict):
+        payload = [payload]
+
+    rows: List[Dict[str, str]] = []
+    for item in payload:
+        rows.append(
+            {
+                "pid": str(item.get("ProcessId") or ""),
+                "parent_pid": str(item.get("ParentProcessId") or ""),
+                "image_name": str(item.get("Name") or ""),
+                "executable_path": str(item.get("ExecutablePath") or ""),
+                "command_line": str(item.get("CommandLine") or ""),
+            }
+        )
+    return rows
