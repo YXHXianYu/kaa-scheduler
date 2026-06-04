@@ -334,6 +334,9 @@ class UuController:
         if not self._wait_for_target_game_page():
             raise RuntimeError("Failed to open the target game page in UU.")
 
+        self.logger.info("Target game page opened, waiting 1 second for the page state to settle.")
+        time.sleep(1.0)
+
         window = self._find_attached_window()
         visual_status = self._build_visual_status(window)
         if visual_status is None:
