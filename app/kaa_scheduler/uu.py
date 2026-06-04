@@ -4,7 +4,7 @@ import re
 import time
 from dataclasses import dataclass
 from logging import Logger
-from typing import Iterable, Optional, Tuple
+from typing import Optional, Tuple
 
 from kaa_scheduler.config import AppConfig
 from kaa_scheduler.models import UuStatus
@@ -28,6 +28,7 @@ REFERENCE_WIDTH = 1000
 REFERENCE_HEIGHT = 688
 TITLE_TEXT_REGION = (38, 220, 276, 320)
 STOP_BUTTON_TEXT_REGION = (122, 326, 278, 368)
+STOP_CONFIRM_DIALOG_TEXT_REGION = (354, 258, 640, 312)
 
 
 @dataclass(frozen=True)
@@ -40,13 +41,8 @@ class UuAnchor:
 
 SEARCH_BOX_ANCHOR = UuAnchor(826, 49)
 SEARCH_FIRST_RESULT_ANCHOR = UuAnchor(809, 104)
-ACTION_BUTTON_STOP_SAMPLES = (UuAnchor(184, 347), UuAnchor(190, 347))
 ACTION_BUTTON_CLICK_ANCHOR = UuAnchor(221, 347)
 STOP_CONFIRM_BUTTON_ANCHOR = UuAnchor(431, 455)
-ACCELERATING_STATUS_BAR_SAMPLES = (UuAnchor(494, 130), UuAnchor(555, 130))
-STOP_BUTTON_RGB = (96, 108, 186)
-STOP_CONFIRM_BUTTON_RGB = (0, 210, 196)
-ACCELERATING_BAR_RGB = (28, 33, 71)
 LANCZOS_RESAMPLE = getattr(Image, "Resampling", Image).LANCZOS
 
 
@@ -71,10 +67,6 @@ class UuController:
         return cls._ocr_engine
 
     @staticmethod
-    def _color_distance(left: Tuple[int, int, int], right: Tuple[int, int, int]) -> int:
-        return sum(abs(left[index] - right[index]) for index in range(3))
-
-    @staticmethod
     def _normalize_ocr_text(text: str) -> str:
         return re.sub(r"\s+", "", text).lower()
 
@@ -90,62 +82,11 @@ class UuController:
             return False
         return "停止加速" in self._normalize_ocr_text(text)
 
-    @classmethod
-    def _sample_matches_reference(
-        cls,
-        sample: Optional[Tuple[int, int, int]],
-        reference: Tuple[int, int, int],
-        max_distance: int,
-    ) -> bool:
-        if sample is None:
+    def _has_stop_confirm_dialog_text(self, text: Optional[str]) -> bool:
+        if not text:
             return False
-        return cls._color_distance(sample, reference) <= max_distance
-
-    @classmethod
-    def _looks_like_stop_button_from_samples(
-        cls,
-        action_button_samples: Iterable[Optional[Tuple[int, int, int]]],
-    ) -> bool:
-        return any(
-            cls._sample_matches_reference(sample, STOP_BUTTON_RGB, max_distance=80)
-            for sample in action_button_samples
-        )
-
-    @classmethod
-    def _looks_like_stop_confirm_button_sample(
-        cls,
-        sample: Optional[Tuple[int, int, int]],
-    ) -> bool:
-        return cls._sample_matches_reference(sample, STOP_CONFIRM_BUTTON_RGB, max_distance=40)
-
-    @classmethod
-    def _looks_like_accelerating_bar_from_samples(
-        cls,
-        bar_samples: Iterable[Optional[Tuple[int, int, int]]],
-    ) -> bool:
-        return any(
-            cls._sample_matches_reference(sample, ACCELERATING_BAR_RGB, max_distance=60)
-            for sample in bar_samples
-        )
-
-    @staticmethod
-    def _image_sample_rgb(image, anchor: UuAnchor) -> Optional[Tuple[int, int, int]]:
-        x = min(max(round((anchor.x / REFERENCE_WIDTH) * image.width), 0), image.width - 1)
-        y = min(max(round((anchor.y / REFERENCE_HEIGHT) * image.height), 0), image.height - 1)
-        pixel = image.getpixel((x, y))
-        if isinstance(pixel, int):
-            return (pixel, pixel, pixel)
-        if len(pixel) >= 3:
-            return (pixel[0], pixel[1], pixel[2])
-        return None
-
-    def _capture_anchor_samples(
-        self,
-        window,
-        anchors: Iterable[UuAnchor],
-    ) -> Iterable[Optional[Tuple[int, int, int]]]:
-        image = capture_window_image(window)
-        return [self._image_sample_rgb(image, anchor) for anchor in anchors]
+        normalized_text = self._normalize_ocr_text(text)
+        return "其他游戏正在加速" in normalized_text
 
     def _find_attached_window(self):
         window = find_first_window_by_title_contains(self.config.uu_window_title)
@@ -204,6 +145,11 @@ class UuController:
         self.logger.info("OCR current UU stop button region: %s", stop_button_text or "<none>")
         return stop_button_text
 
+    def _read_stop_confirm_dialog_text(self, window) -> Optional[str]:
+        dialog_text = self._read_text_in_region(window, STOP_CONFIRM_DIALOG_TEXT_REGION)
+        self.logger.info("OCR current UU stop confirm dialog region: %s", dialog_text or "<none>")
+        return dialog_text
+
     def _is_current_page_accelerating_any_game(self, window) -> bool:
         stop_button_text = self._read_stop_button_text(window)
         return self._has_stop_button_text(stop_button_text)
@@ -236,15 +182,12 @@ class UuController:
             raise RuntimeError("The stop button was clicked, but UU still looks like it is accelerating the current game page.")
 
     def _build_visual_status(self, window) -> Optional[UuStatus]:
-        image = capture_window_image(window)
-        action_button_samples = [self._image_sample_rgb(image, anchor) for anchor in ACTION_BUTTON_STOP_SAMPLES]
-        bar_samples = [self._image_sample_rgb(image, anchor) for anchor in ACCELERATING_STATUS_BAR_SAMPLES]
         title_text = self._read_current_page_game_title(window)
 
         if not self._is_target_game_title_text(title_text):
             return None
 
-        if self._looks_like_stop_button_from_samples(action_button_samples) and self._looks_like_accelerating_bar_from_samples(bar_samples):
+        if self._is_current_page_accelerating_any_game(window):
             return UuStatus(
                 process_running=True,
                 window_attached=True,
@@ -268,9 +211,8 @@ class UuController:
             raise RuntimeError("Failed to click the UU image anchor: " + str(exc)) from exc
 
     def _has_stop_confirm_dialog(self, window) -> bool:
-        image = capture_window_image(window)
-        confirm_button_sample = self._image_sample_rgb(image, STOP_CONFIRM_BUTTON_ANCHOR)
-        return self._looks_like_stop_confirm_button_sample(confirm_button_sample)
+        dialog_text = self._read_stop_confirm_dialog_text(window)
+        return self._has_stop_confirm_dialog_text(dialog_text)
 
     def _open_target_game_page(self) -> None:
         window = self._find_attached_window()

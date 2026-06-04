@@ -23,31 +23,6 @@ class UuControllerTests(unittest.TestCase):
 
         self.assertIsInstance(status, UuStatus)
 
-    def test_accelerating_state_color_classifiers(self) -> None:
-        self.assertTrue(
-            UuController._looks_like_stop_button_from_samples(
-                [(96, 108, 186), (102, 112, 180)]
-            )
-        )
-        self.assertTrue(
-            UuController._looks_like_accelerating_bar_from_samples(
-                [(28, 33, 71), (30, 36, 77)]
-            )
-        )
-        self.assertFalse(
-            UuController._looks_like_stop_button_from_samples(
-                [(36, 216, 210), (42, 210, 206)]
-            )
-        )
-
-    def test_stop_confirm_dialog_classifier(self) -> None:
-        self.assertTrue(
-            UuController._looks_like_stop_confirm_button_sample((0, 210, 196))
-        )
-        self.assertFalse(
-            UuController._looks_like_stop_confirm_button_sample((16, 22, 43))
-        )
-
     def test_target_game_title_text_matcher(self) -> None:
         config = build_default_config(Path(__file__).resolve().parents[1])
         logger = logging.getLogger("test_uu_title_match")
@@ -71,6 +46,17 @@ class UuControllerTests(unittest.TestCase):
         self.assertTrue(controller._has_stop_button_text("停止加速"))
         self.assertTrue(controller._has_stop_button_text(" 停止 加速 "))
         self.assertFalse(controller._has_stop_button_text("启动游戏"))
+
+    def test_stop_confirm_dialog_text_matcher(self) -> None:
+        config = build_default_config(Path(__file__).resolve().parents[1])
+        logger = logging.getLogger("test_uu_stop_confirm_text")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+
+        controller = UuController(config, logger)
+
+        self.assertTrue(controller._has_stop_confirm_dialog_text("其他游戏正在加速，是否继续加速该游戏?"))
+        self.assertFalse(controller._has_stop_confirm_dialog_text("确定"))
 
     def test_stop_target_acceleration_does_not_reopen_target_page(self) -> None:
         config = build_default_config(Path(__file__).resolve().parents[1])
@@ -176,19 +162,36 @@ class UuControllerTests(unittest.TestCase):
 
         controller = UuController(config, logger)
 
-        with patch("kaa_scheduler.uu.capture_window_image", return_value=object()), patch.object(
+        with patch.object(
             controller, "_read_current_page_game_title", return_value="彩虹六号：围攻"
-        ), patch.object(controller, "_image_sample_rgb", side_effect=[(96, 108, 186), (96, 108, 186), (28, 33, 71), (28, 33, 71)]):
+        ), patch.object(controller, "_is_current_page_accelerating_any_game", return_value=True):
             self.assertIsNone(controller._build_visual_status(object()))
 
-        with patch("kaa_scheduler.uu.capture_window_image", return_value=object()), patch.object(
+        with patch.object(
             controller, "_read_current_page_game_title", return_value="学园偶像大师"
-        ), patch.object(controller, "_image_sample_rgb", side_effect=[(96, 108, 186), (96, 108, 186), (28, 33, 71), (28, 33, 71)]):
+        ), patch.object(controller, "_is_current_page_accelerating_any_game", return_value=True):
             status = controller._build_visual_status(object())
 
         self.assertIsNotNone(status)
         assert status is not None
         self.assertTrue(status.accelerating_target)
+
+    def test_build_visual_status_uses_negation_for_not_accelerating(self) -> None:
+        config = build_default_config(Path(__file__).resolve().parents[1])
+        logger = logging.getLogger("test_uu_visual_status_negation")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+
+        controller = UuController(config, logger)
+
+        with patch.object(controller, "_read_current_page_game_title", return_value="学园偶像大师"), patch.object(
+            controller, "_is_current_page_accelerating_any_game", return_value=False
+        ):
+            status = controller._build_visual_status(object())
+
+        self.assertIsNotNone(status)
+        assert status is not None
+        self.assertFalse(status.accelerating_target)
 
 
 if __name__ == "__main__":
