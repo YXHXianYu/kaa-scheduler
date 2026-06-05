@@ -51,10 +51,10 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task_sched
 schtasks /Delete /TN "kaa-scheduler-test" /F
 ```
 
-确认没问题后，再创建正式的每天 `05:00` 任务：
+确认没问题后，再创建正式的每天 `06:00` 任务：
 
 ```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task_scheduler.ps1 -TaskName "kaa-scheduler-daily" -StartTime "05:00"
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task_scheduler.ps1 -TaskName "kaa-scheduler-daily" -StartTime "06:00"
 ```
 
 更完整的调试命令、环境前提、配置项、计划任务脚本、日志说明和常见问题见 [AGENTS.md](AGENTS.md)。
