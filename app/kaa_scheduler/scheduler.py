@@ -10,7 +10,10 @@ from kaa_scheduler.models import RunOptions, RunResult, StepResult
 from kaa_scheduler.kaa import KaaController
 from kaa_scheduler.uu import UuController
 from kaa_scheduler.infra.single_instance import SingleInstanceLock
-
+from kaa_scheduler.infra.window import (
+    close_window_by_title_predicate,
+    minimize_window_by_title_predicate,
+)
 
 STEP_HELP = {
     "uu.ensure_started": "Ensure that the UU process exists.",
@@ -20,6 +23,7 @@ STEP_HELP = {
     "uu.stop_target_acceleration": "Stop target-game acceleration in UU.",
     "kaa.launch": "Launch kaa.exe.",
     "kaa.wait_until_finish": "Wait for kaa.exe to exit.",
+    "post_run_cleanup": "Minimize Chrome and close any lingering launcher windows.",
 }
 
 
@@ -73,6 +77,11 @@ class Scheduler:
                     steps,
                     "kaa.wait_until_finish",
                     lambda: self.kaa.wait_until_finish(options.timeout_seconds, options.dry_run),
+                )
+                self._run_step(
+                    steps,
+                    "post_run_cleanup",
+                    lambda: self._post_run_cleanup(options.dry_run),
                 )
                 self._run_step(
                     steps,
@@ -163,6 +172,7 @@ class Scheduler:
             "uu.stop_target_acceleration": lambda: self.uu.stop_target_acceleration(options.dry_run),
             "kaa.launch": lambda: self.kaa.launch(options.dry_run),
             "kaa.wait_until_finish": lambda: self.kaa.wait_until_finish(options.timeout_seconds, options.dry_run),
+            "post_run_cleanup": lambda: self._post_run_cleanup(options.dry_run),
         }
         return action_map.get(step_name)
 
@@ -192,6 +202,29 @@ class Scheduler:
         )
         self.logger.info("Completed step: %s | %s", name, message)
         return value
+
+    def _post_run_cleanup(self, dry_run: bool = False) -> str:
+        """Minimize Chrome and close any lingering launcher windows after kaa finishes."""
+
+        if dry_run:
+            return "dry-run: skipped post-run cleanup"
+
+        # 1. Minimize Chrome windows (kaa may have opened a web UI).
+        chrome_window = minimize_window_by_title_predicate(
+            lambda title: "chrome" in title.lower() or "google chrome" in title.lower()
+        )
+        if chrome_window is not None:
+            self.logger.info("Minimized Chrome window: %s", chrome_window.title)
+
+        # 2. Close the kaa / launcher console window that is stuck on "Press any key to exit".
+        # The title is typically "选择 管理员: 琴音小助手启动器..." or similar.
+        launcher_window = close_window_by_title_predicate(
+            lambda title: "琴音小助手" in title and "启动器" in title
+        )
+        if launcher_window is not None:
+            self.logger.info("Closed lingering launcher window: %s", launcher_window.title)
+
+        return "Post-run cleanup completed."
 
     def _build_result(
         self,

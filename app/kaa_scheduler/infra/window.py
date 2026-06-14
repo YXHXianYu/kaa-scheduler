@@ -5,7 +5,7 @@ import re
 import time
 from ctypes import wintypes
 from dataclasses import dataclass
-from typing import List, Optional, Tuple
+from typing import Callable, List, Optional, Tuple
 
 user32 = ctypes.windll.user32
 SW_RESTORE = 9
@@ -316,3 +316,50 @@ def click_uia_control(title_fragment: str, control_title_fragment: str) -> bool:
                 return False
         return True
     return False
+
+
+WM_SYSCOMMAND = 0x0112
+SC_CLOSE = 0xF060
+
+
+def close_window_by_title(title_fragment: str) -> Optional[WindowInfo]:
+    """Close the first visible window whose title contains the given fragment."""
+
+    window = find_first_window_by_title_contains(title_fragment)
+    if window is None:
+        return None
+    user32.PostMessageW(window.hwnd, WM_SYSCOMMAND, SC_CLOSE, 0)
+    return window
+
+
+def close_window_by_title_predicate(predicate: Callable[[str], bool]) -> Optional[WindowInfo]:
+    """Close the first visible window whose title passes the given predicate."""
+
+    for window in list_visible_windows():
+        if predicate(window.title):
+            user32.PostMessageW(window.hwnd, WM_SYSCOMMAND, SC_CLOSE, 0)
+            return window
+    return None
+
+
+SW_MINIMIZE = 6
+
+
+def minimize_window_by_title(title_fragment: str) -> Optional[WindowInfo]:
+    """Minimize the first visible window whose title contains the given fragment."""
+
+    window = find_first_window_by_title_contains(title_fragment)
+    if window is None:
+        return None
+    user32.ShowWindow(window.hwnd, SW_MINIMIZE)
+    return window
+
+
+def minimize_window_by_title_predicate(predicate: Callable[[str], bool]) -> Optional[WindowInfo]:
+    """Minimize the first visible window whose title passes the given predicate."""
+
+    for window in list_visible_windows():
+        if predicate(window.title):
+            user32.ShowWindow(window.hwnd, SW_MINIMIZE)
+            return window
+    return None
