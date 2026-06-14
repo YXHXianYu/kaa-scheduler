@@ -15,6 +15,7 @@ from kaa_scheduler.infra.window import (
     click_window_reference_point,
     click_uia_control,
     find_first_window_by_title_contains,
+    find_first_window_by_title_contains_including_invisible,
     has_uia_control,
     is_uia_available,
     list_uia_control_names,
@@ -295,6 +296,19 @@ class UuController:
         """Attach to the UU main window by title."""
 
         window = wait_for_window(self.config.uu_window_title, timeout_seconds)
+        if window is None:
+            # Fallback: the window may be minimized to the system tray and not
+            # considered visible by IsWindowVisible. Try to find it anyway and
+            # restore it.
+            window = find_first_window_by_title_contains_including_invisible(self.config.uu_window_title)
+            if window is not None:
+                self.logger.info(
+                    "UU window found in invisible/minimized state (hwnd=%s, title=%s). Restoring it.",
+                    window.hwnd,
+                    window.title,
+                )
+                bring_window_to_front(window)
+
         if window is None:
             if require_window:
                 raise RuntimeError("UU window was not found.")

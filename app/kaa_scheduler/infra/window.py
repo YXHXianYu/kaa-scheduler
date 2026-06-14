@@ -92,6 +92,24 @@ def find_first_window_by_title_contains(title_fragment: str) -> Optional[WindowI
     return matches[0]
 
 
+def find_first_window_by_title_contains_including_invisible(title_fragment: str) -> Optional[WindowInfo]:
+    """Return the first matching window (visible or not), if any."""
+
+    needle = title_fragment.lower()
+    windows: List[WindowInfo] = []
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def enum_proc(hwnd: int, _lparam: int) -> bool:
+        title = _get_window_text(hwnd)
+        if title and needle in title.lower():
+            windows.append(WindowInfo(hwnd=hwnd, title=title))
+            return False  # stop at first match
+        return True
+
+    user32.EnumWindows(enum_proc, 0)
+    return windows[0] if windows else None
+
+
 def wait_for_window(title_fragment: str, timeout_seconds: int, poll_interval: float = 0.5) -> Optional[WindowInfo]:
     """Poll until a matching window appears or the timeout is reached."""
 
@@ -104,11 +122,34 @@ def wait_for_window(title_fragment: str, timeout_seconds: int, poll_interval: fl
     return None
 
 
+WM_SYSCOMMAND = 0x0112
+SC_RESTORE = 0xF120
+
+
 def bring_window_to_front(window: WindowInfo) -> None:
     """Restore a window and try to move it to the foreground."""
 
-    user32.ShowWindow(window.hwnd, SW_RESTORE)
+    # Some applications (e.g., UU加速器) ignore the synchronous ShowWindow call
+    # when minimized to the system tray. Use WM_SYSCOMMAND SC_RESTORE as a
+    # more reliable way to bring the window back.
+    if user32.IsIconic(window.hwnd):
+        user32.SendMessageW(window.hwnd, WM_SYSCOMMAND, SC_RESTORE, 0)
+    else:
+        user32.ShowWindow(window.hwnd, SW_RESTORE)
+
+    # AttachThreadInput is required to reliably call SetForegroundWindow from
+    # a background process on Windows.
+    foreground_hwnd = user32.GetForegroundWindow()
+    foreground_thread = user32.GetWindowThreadProcessId(foreground_hwnd, None)
+    target_thread = user32.GetWindowThreadProcessId(window.hwnd, None)
+
+    if foreground_thread != target_thread:
+        user32.AttachThreadInput(foreground_thread, target_thread, True)
+
     user32.SetForegroundWindow(window.hwnd)
+
+    if foreground_thread != target_thread:
+        user32.AttachThreadInput(foreground_thread, target_thread, False)
 
 
 def get_window_rect(window: WindowInfo) -> WindowRect:

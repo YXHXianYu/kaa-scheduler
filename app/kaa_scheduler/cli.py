@@ -49,6 +49,24 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     config = build_default_config()
     logger, _run_id = configure_logging(config, args.log_level)
 
+    # Runtime guard: mouse/keyboard automation requires admin privileges on Windows
+    # because UIPI (User Interface Privilege Isolation) blocks non-elevated
+    # processes from sending input to elevated windows.
+    if not args.dry_run:
+        try:
+            import ctypes
+            is_admin = ctypes.windll.shell32.IsUserAnAdmin() != 0
+        except Exception:
+            is_admin = False
+        if not is_admin:
+            logger.warning(
+                "The scheduler is NOT running as administrator. "
+                "Window automation (mouse clicks, keyboard input) may fail with "
+                "'Access Denied' (error 5) because Windows UIPI blocks "
+                "non-elevated processes from interacting with elevated windows. "
+                "Please restart this terminal with 'Run as administrator'."
+            )
+
     options = RunOptions(
         command=args.command,
         timeout_seconds=args.timeout or config.default_timeout_seconds,
