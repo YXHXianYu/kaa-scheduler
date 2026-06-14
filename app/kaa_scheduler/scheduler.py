@@ -11,6 +11,7 @@ from kaa_scheduler.kaa import KaaController
 from kaa_scheduler.uu import UuController
 from kaa_scheduler.infra.single_instance import SingleInstanceLock
 from kaa_scheduler.infra.window import (
+    close_window_by_title,
     close_window_by_title_predicate,
     minimize_window_by_title_predicate,
 )
@@ -21,6 +22,7 @@ STEP_HELP = {
     "uu.get_status": "Read the current UU status without clicking.",
     "uu.ensure_target_accelerating": "Open the target game page and ensure acceleration is active.",
     "uu.stop_target_acceleration": "Stop target-game acceleration in UU.",
+    "uu.close_window": "Close the UU window (keeps process running in background).",
     "kaa.launch": "Launch kaa.exe.",
     "kaa.wait_until_finish": "Wait for kaa.exe to exit.",
     "post_run_cleanup": "Minimize Chrome and close any lingering launcher windows.",
@@ -87,6 +89,11 @@ class Scheduler:
                     steps,
                     "uu.stop_target_acceleration",
                     lambda: self.uu.stop_target_acceleration(options.dry_run),
+                )
+                self._run_step(
+                    steps,
+                    "uu.close_window",
+                    lambda: self._uu_close_window(options.dry_run),
                 )
         except NotImplementedError as exc:
             return self._build_result(options, steps, False, 2, str(exc), start_time)
@@ -170,6 +177,7 @@ class Scheduler:
             "uu.get_status": self.uu.get_status,
             "uu.ensure_target_accelerating": lambda: self.uu.ensure_target_accelerating(options.dry_run),
             "uu.stop_target_acceleration": lambda: self.uu.stop_target_acceleration(options.dry_run),
+            "uu.close_window": lambda: self._uu_close_window(options.dry_run),
             "kaa.launch": lambda: self.kaa.launch(options.dry_run),
             "kaa.wait_until_finish": lambda: self.kaa.wait_until_finish(options.timeout_seconds, options.dry_run),
             "post_run_cleanup": lambda: self._post_run_cleanup(options.dry_run),
@@ -225,6 +233,19 @@ class Scheduler:
             self.logger.info("Closed lingering launcher window: %s", launcher_window.title)
 
         return "Post-run cleanup completed."
+
+    def _uu_close_window(self, dry_run: bool = False) -> str:
+        """Close the UU window (keeps process running in background), equivalent to clicking the X button."""
+
+        if dry_run:
+            return "dry-run: skipped closing UU window"
+
+        window = close_window_by_title(self.config.uu_window_title)
+        if window is not None:
+            self.logger.info("Closed UU window: %s", window.title)
+            return f"UU window closed: {window.title}"
+
+        return "UU window was not found, nothing to close."
 
     def _build_result(
         self,
