@@ -57,4 +57,33 @@ schtasks /Delete /TN "kaa-scheduler-test" /F
 powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install_task_scheduler.ps1 -TaskName "kaa-scheduler-daily" -StartTime "06:00"
 ```
 
+## 计划任务深夜失败（屏保导致）
+
+如果在计划任务设置的时间点（例如凌晨）执行失败，日志显示 UU 窗口已恢复但 OCR 读不到任何内容，大概率是因为 **Windows 屏幕保护程序** 在长时间空闲后激活，导致 DWM 合成状态异常，窗口截图被遮挡或变为空白。
+
+### 检查
+
+- 如果执行日志出现类似 `OCR current UU page title region: <none>` 或随机数字（如 `10`），而 UU 进程本身在运行，说明窗口已恢复但内容无法被截图识别。
+- 手动测试时（刚关闭显示器立即运行）正常，但放置一晚后失败，更说明是时间触发的状态变化。
+
+### 修复（关闭屏幕保护程序）
+
+在 PowerShell 中执行以下命令：
+
+```powershell
+# 关闭屏幕保护程序
+reg add "HKEY_CURRENT_USER\Control Panel\Desktop" /v ScreenSaveActive /t REG_SZ /d 0 /f
+
+# 刷新设置使其立即生效
+rundll32.exe user32.dll,UpdatePerUserSystemParameters
+```
+
+关闭后，Windows 在长时间空闲时不会进入屏保状态，凌晨任务可以正常截图和 OCR 识别。
+
+### 注意
+
+- 手动按显示器物理按钮关闭显示器**不会**触发这个问题（测试已验证）。
+- 问题仅在 Windows 屏保程序自动启动后出现。
+- 如果关闭屏保后仍有失败，请检查 `AGENTS.md` 中的其他常见问题。
+
 更完整的调试命令、环境前提、配置项、计划任务脚本、日志说明和常见问题见 [AGENTS.md](AGENTS.md)。
