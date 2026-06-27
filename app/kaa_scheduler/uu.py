@@ -178,9 +178,16 @@ class UuController:
 
         if self._has_stop_confirm_dialog(window):
             self._click_anchor(window, STOP_CONFIRM_BUTTON_ANCHOR)
+            time.sleep(0.5)
 
         if not self._wait_for_current_page_stop_state():
             raise RuntimeError("The stop button was clicked, but UU still looks like it is accelerating the current game page.")
+
+        # Wait for the UU page transition animation to settle before the next
+        # interaction (search / click). This prevents clicks from landing on
+        # transient UI elements during the animation.
+        self.logger.info("Waiting 2 seconds for the UU page to fully settle after stopping acceleration.")
+        time.sleep(2.0)
 
     def _build_visual_status(self, window) -> Optional[UuStatus]:
         title_text = self._read_current_page_game_title(window)
@@ -219,16 +226,19 @@ class UuController:
         window = self._find_attached_window()
         bring_window_to_front(window)
         self._click_anchor(window, SEARCH_BOX_ANCHOR)
-        time.sleep(0.2)
+        time.sleep(0.3)
         send_foreground_keys("^a")
         time.sleep(0.1)
         send_foreground_keys("{BACKSPACE}")
         time.sleep(0.1)
         send_foreground_text(self.config.target_game_name)
-        time.sleep(0.8)
+        time.sleep(1.0)
         self._click_anchor(window, SEARCH_FIRST_RESULT_ANCHOR)
+        # Give the search result page a moment to render before the caller
+        # starts polling with OCR.
+        time.sleep(0.5)
 
-    def _wait_for_target_game_page(self, timeout_seconds: float = 8.0) -> bool:
+    def _wait_for_target_game_page(self, timeout_seconds: float = 15.0) -> bool:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             window = find_first_window_by_title_contains(self.config.uu_window_title)
@@ -242,7 +252,7 @@ class UuController:
             time.sleep(0.5)
         return False
 
-    def _wait_for_accelerating_state(self, timeout_seconds: float = 8.0) -> bool:
+    def _wait_for_accelerating_state(self, timeout_seconds: float = 15.0) -> bool:
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
             window = find_first_window_by_title_contains(self.config.uu_window_title)
