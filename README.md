@@ -29,6 +29,36 @@ python -m kaa_scheduler --help
 python -m kaa_scheduler run
 ```
 
+## kaa 路径说明
+
+scheduler 默认启动的 kaa 路径如下：
+
+- **可执行文件**：`D:\Programs\kaa-bootstrap-0.5.1\kaa.exe`
+- **工作目录**：`D:\Programs\kaa-bootstrap-0.5.1`
+- **进程名**：`kaa.exe`
+
+这个路径在 `app/kaa_scheduler/config.py` 中写死为默认值。启动时 scheduler 会执行：
+
+```powershell
+kaa.exe --start-immidiately
+```
+
+如果你系统里有多个 kaa，可以通过环境变量覆盖默认值，而不需要改代码：
+
+```powershell
+$env:KAA_SCHEDULER_KAA_EXE = "D:\Programs\另一个kaa目录\kaa.exe"
+$env:KAA_SCHEDULER_KAA_WORKDIR = "D:\Programs\另一个kaa目录"
+python -m kaa_scheduler run
+```
+
+可用的覆盖环境变量：
+
+| 环境变量 | 说明 |
+| --- | --- |
+| `KAA_SCHEDULER_KAA_EXE` | kaa 可执行文件完整路径 |
+| `KAA_SCHEDULER_KAA_WORKDIR` | kaa 启动时的工作目录 |
+| `KAA_SCHEDULER_KAA_PROCESS` | kaa 进程名（默认 `kaa.exe`） |
+
 ## 计划任务快速试跑
 
 如果你想先测试一次“5 分钟后是否会自动执行”，可以先用一个临时时间创建任务。
