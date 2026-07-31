@@ -26,6 +26,22 @@ class SchedulerDryRunTests(unittest.TestCase):
         self.assertEqual(result.exit_code, 0)
         self.assertGreaterEqual(len(result.steps), 5)
 
+    def test_run_kaa_only_dry_run_succeeds(self) -> None:
+        config = build_default_config(Path(__file__).resolve().parents[1])
+        config.ensure_runtime_dirs()
+        logger = logging.getLogger("test_scheduler_kaa_only")
+        logger.handlers.clear()
+        logger.addHandler(logging.NullHandler())
+
+        scheduler = Scheduler(config, logger)
+        options = RunOptions(command="run-kaa-only", timeout_seconds=5, log_level="CRITICAL", dry_run=True)
+        result = scheduler.run(options)
+
+        self.assertTrue(result.success)
+        self.assertEqual(result.exit_code, 0)
+        self.assertEqual(len(result.steps), 3)
+        self.assertEqual([step.name for step in result.steps], ["kaa.launch", "kaa.wait_until_finish", "post_run_cleanup"])
+
     def test_single_step_dry_run_succeeds(self) -> None:
         config = build_default_config(Path(__file__).resolve().parents[1])
         config.ensure_runtime_dirs()

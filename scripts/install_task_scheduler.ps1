@@ -1,6 +1,6 @@
 param(
     [string]$TaskName = "kaa-scheduler-daily",
-    [string]$StartTime = "05:00"
+    [string]$StartTime = "05:30"
 )
 
 $repoRoot = Split-Path -Parent $PSScriptRoot

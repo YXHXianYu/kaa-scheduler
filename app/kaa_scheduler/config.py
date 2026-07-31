@@ -20,8 +20,10 @@ class AppConfig:
     uu_window_title: str
     target_game_name: str
     kaa_exe_path: Path
+    kaa_python_exe_path: Path
     kaa_process_name: str
     kaa_working_dir: Path
+    kaa_new_version: bool
     default_timeout_seconds: int
 
     def ensure_runtime_dirs(self) -> None:
@@ -42,6 +44,13 @@ def _env_int(name: str, default: int) -> int:
     if not value:
         return default
     return int(value)
+
+
+def _env_bool(name: str, default: bool) -> bool:
+    value = os.getenv(name)
+    if not value:
+        return default
+    return value.strip().lower() in ("1", "true", "yes", "on")
 
 
 def build_default_config(project_root: Optional[Path] = None) -> AppConfig:
@@ -73,10 +82,15 @@ def build_default_config(project_root: Optional[Path] = None) -> AppConfig:
             "KAA_SCHEDULER_KAA_EXE",
             Path(r"D:\Programs\kaa-bootstrap-0.5.1\kaa.exe"),
         ),
+        kaa_python_exe_path=_env_path(
+            "KAA_SCHEDULER_KAA_PYTHON_EXE",
+            Path(r"D:\Programs\kaa-bootstrap-0.5.1\WPy64-310111\python-3.10.11.amd64\python.exe"),
+        ),
         kaa_process_name=os.getenv("KAA_SCHEDULER_KAA_PROCESS", "kaa.exe"),
         kaa_working_dir=_env_path(
             "KAA_SCHEDULER_KAA_WORKDIR",
             Path(r"D:\Programs\kaa-bootstrap-0.5.1"),
         ),
+        kaa_new_version=_env_bool("KAA_SCHEDULER_KAA_NEW_VERSION", False),
         default_timeout_seconds=_env_int("KAA_SCHEDULER_TIMEOUT", 20 * 60),
     )

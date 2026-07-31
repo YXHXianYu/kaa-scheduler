@@ -26,6 +26,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     subparsers.add_parser("run", parents=[common], help="Run the full scheduler flow")
+    subparsers.add_parser("run-kaa-only", parents=[common], help="Run kaa directly without UU acceleration steps")
     subparsers.add_parser("probe-uu", parents=[common], help="Probe UU launch and window attach only")
     subparsers.add_parser("probe-kaa", parents=[common], help="Probe kaa launch and wait only")
     step_parser = subparsers.add_parser("step", parents=[common], help="Run a single scheduler step")

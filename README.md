@@ -29,6 +29,16 @@ python -m kaa_scheduler --help
 python -m kaa_scheduler run
 ```
 
+### 只跑 kaa（跳过 UU）
+
+如果你不需要 UU 加速，或者只想单独测试 kaa：
+
+```powershell
+python -m kaa_scheduler run-kaa-only
+```
+
+这个命令会跳过所有 UU 相关步骤，直接启动 kaa、等待结束、执行清理。
+
 ## kaa 路径说明
 
 scheduler 默认启动的 kaa 路径如下：
@@ -37,16 +47,26 @@ scheduler 默认启动的 kaa 路径如下：
 - **工作目录**：`D:\Programs\kaa-bootstrap-0.5.1`
 - **进程名**：`kaa.exe`
 
-这个路径在 `app/kaa_scheduler/config.py` 中写死为默认值。启动时 scheduler 会执行：
+这个路径在 `app/kaa_scheduler/config.py` 中写死为默认值。启动时 scheduler 默认会执行旧版参数：
 
 ```powershell
 kaa.exe --start-immidiately
 ```
 
+如果你的 kaa 已经更新到新版（`kaa.exe` 为 GUI 程序且 CLI 有任务名 bug），需要设置环境变量：
+
+```powershell
+$env:KAA_SCHEDULER_KAA_NEW_VERSION = "true"
+python -m kaa_scheduler run
+```
+
+设置后 scheduler 会直接调用 kaa 内置 Python，执行 `kaa.run_all()`，运行当前配置中所有 `enabled` 的任务。默认配置里 `produce`（培育）是 `enabled: false`，所以不会执行。
+
 如果你系统里有多个 kaa，可以通过环境变量覆盖默认值，而不需要改代码：
 
 ```powershell
 $env:KAA_SCHEDULER_KAA_EXE = "D:\Programs\另一个kaa目录\kaa.exe"
+$env:KAA_SCHEDULER_KAA_PYTHON_EXE = "D:\Programs\另一个kaa目录\WPy64-310111\python-3.10.11.amd64\python.exe"
 $env:KAA_SCHEDULER_KAA_WORKDIR = "D:\Programs\另一个kaa目录"
 python -m kaa_scheduler run
 ```
@@ -55,9 +75,11 @@ python -m kaa_scheduler run
 
 | 环境变量 | 说明 |
 | --- | --- |
-| `KAA_SCHEDULER_KAA_EXE` | kaa 可执行文件完整路径 |
+| `KAA_SCHEDULER_KAA_EXE` | kaa 可执行文件完整路径（旧版使用） |
+| `KAA_SCHEDULER_KAA_PYTHON_EXE` | kaa 内置 Python 路径（新版使用） |
 | `KAA_SCHEDULER_KAA_WORKDIR` | kaa 启动时的工作目录 |
 | `KAA_SCHEDULER_KAA_PROCESS` | kaa 进程名（默认 `kaa.exe`） |
+| `KAA_SCHEDULER_KAA_NEW_VERSION` | kaa 是否使用新版启动方式（默认 `false`） |
 
 ## 计划任务快速试跑
 

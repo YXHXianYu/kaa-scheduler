@@ -1,0 +1,101 @@
+{
+  "version": 11,
+  "name": "default",
+  "description": "",
+  "backend": {
+    "lifecycle": {
+      "type": "custom",
+      "check_and_start": false,
+      "emulator_path": null,
+      "emulator_args": ""
+    },
+    "connection": {
+      "type": "tcp",
+      "ip": "127.0.0.1",
+      "port": 5555
+    },
+    "screenshot_impl": "adb",
+    "target_screenshot_interval": null
+  },
+  "keep_screenshots": false,
+  "tasks": {
+    "purchase": {
+      "enabled": false,
+      "money_enabled": false,
+      "money_items": [],
+      "money_refresh": true,
+      "ap_enabled": false,
+      "ap_items": [],
+      "weekly_enabled": false
+    },
+    "activity_funds": {
+      "enabled": false
+    },
+    "presents": {
+      "enabled": false
+    },
+    "assignment": {
+      "enabled": false,
+      "mini_live_reassign_enabled": false,
+      "mini_live_duration": 12,
+      "online_live_reassign_enabled": false,
+      "online_live_duration": 12
+    },
+    "contest": {
+      "enabled": false,
+      "select_which_contestant": 1,
+      "when_no_set": "remind"
+    },
+    "produce": {
+      "enabled": false,
+      "selected_solution_id": null,
+      "produce_count": 1,
+      "produce_timeout_cd": 60,
+      "interrupt_timeout": 90,
+      "enable_fever_month": "ignore",
+      "produce_engine": "legacy"
+    },
+    "mission_reward": {
+      "enabled": false
+    },
+    "club_reward": {
+      "enabled": false,
+      "selected_note": 11
+    },
+    "upgrade_support_card": {
+      "enabled": false
+    },
+    "capsule_toys": {
+      "enabled": false,
+      "friend_capsule_toys_count": 0,
+      "sense_capsule_toys_count": 0,
+      "logic_capsule_toys_count": 0,
+      "anomaly_capsule_toys_count": 0
+    },
+    "start_game": {
+      "enabled": true,
+      "start_through_kuyo": false,
+      "disable_gakumas_localify": false,
+      "dmm_game_path": null,
+      "dmm_bypass": false
+    },
+    "end_game": {
+      "exit_kaa": false,
+      "kill_game": false,
+      "kill_dmm": false,
+      "kill_emulator": false,
+      "shutdown": false,
+      "hibernate": false,
+      "restore_gakumas_localify": false
+    }
+  },
+  "trace": {
+    "recommend_card_detection": false,
+    "commu_event_buttons": false
+  },
+  "idle": {
+    "enabled": false,
+    "idle_seconds": 30,
+    "minimize_on_pause": true
+  }
+}

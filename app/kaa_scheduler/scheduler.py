@@ -43,6 +43,8 @@ class Scheduler:
 
         if options.command == "run":
             return self.run_full_flow(options)
+        if options.command == "run-kaa-only":
+            return self.run_kaa_only(options)
         if options.command == "step":
             return self.run_single_step(options)
         if options.command == "probe-uu":
@@ -101,6 +103,31 @@ class Scheduler:
             return self._build_result(options, steps, False, 1, str(exc), start_time)
 
         return self._build_result(options, steps, True, 0, "Run completed.", start_time)
+
+    def run_kaa_only(self, options: RunOptions) -> RunResult:
+        """Run kaa directly, skipping all UU acceleration steps."""
+
+        start_time = time.perf_counter()
+        steps: List[StepResult] = []
+        try:
+            with SingleInstanceLock(self.config.lock_file):
+                self._run_step(steps, "kaa.launch", lambda: self.kaa.launch(options.dry_run))
+                self._run_step(
+                    steps,
+                    "kaa.wait_until_finish",
+                    lambda: self.kaa.wait_until_finish(options.timeout_seconds, options.dry_run),
+                )
+                self._run_step(
+                    steps,
+                    "post_run_cleanup",
+                    lambda: self._post_run_cleanup(options.dry_run),
+                )
+        except NotImplementedError as exc:
+            return self._build_result(options, steps, False, 2, str(exc), start_time)
+        except Exception as exc:
+            return self._build_result(options, steps, False, 1, str(exc), start_time)
+
+        return self._build_result(options, steps, True, 0, "kaa-only run completed.", start_time)
 
     def run_uu_probe(self, options: RunOptions) -> RunResult:
         """Run the UU probe path."""

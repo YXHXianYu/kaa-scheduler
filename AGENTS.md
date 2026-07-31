@@ -49,9 +49,11 @@ python -m kaa_scheduler --help
 | `KAA_SCHEDULER_UU_PROCESS` | `uu.exe` | UU 进程名 |
 | `KAA_SCHEDULER_UU_WINDOW` | `UU加速器` | UU 主窗口标题关键字 |
 | `KAA_SCHEDULER_TARGET_GAME` | `学园偶像大师` | 目标游戏名 |
-| `KAA_SCHEDULER_KAA_EXE` | `D:\Programs\kaa-bootstrap-0.5.1\kaa.exe` | kaa 可执行文件路径 |
+| `KAA_SCHEDULER_KAA_EXE` | `D:\Programs\kaa-bootstrap-0.5.1\kaa.exe` | kaa 可执行文件路径（旧版使用） |
+| `KAA_SCHEDULER_KAA_PYTHON_EXE` | `D:\Programs\kaa-bootstrap-0.5.1\WPy64-310111\python-3.10.11.amd64\python.exe` | 新版 kaa 启动时使用的内置 Python 路径 |
 | `KAA_SCHEDULER_KAA_PROCESS` | `kaa.exe` | kaa 进程名 |
 | `KAA_SCHEDULER_KAA_WORKDIR` | `D:\Programs\kaa-bootstrap-0.5.1` | kaa 工作目录 |
+| `KAA_SCHEDULER_KAA_NEW_VERSION` | `false` | 新版 kaa 直接调用内置 Python 执行 `run_all()`（旧版用 `--start-immidiately`） |
 | `KAA_SCHEDULER_TIMEOUT` | `1200` | `kaa.wait_until_finish` 的默认超时时间，单位秒 |
 
 当前版本还有两个重要约束：
@@ -81,6 +83,22 @@ python -m kaa_scheduler run
 python -m kaa_scheduler run --dry-run
 python -m kaa_scheduler run --timeout 1800
 python -m kaa_scheduler run --log-level DEBUG
+```
+
+### `run-kaa-only`
+
+跳过所有 UU 步骤，直接启动并等待 kaa：
+
+1. `kaa.launch`
+2. `kaa.wait_until_finish`
+3. `post_run_cleanup`
+
+示例：
+
+```powershell
+python -m kaa_scheduler run-kaa-only
+python -m kaa_scheduler run-kaa-only --dry-run
+python -m kaa_scheduler run-kaa-only --timeout 1800
 ```
 
 ### `probe-uu`

@@ -10,8 +10,12 @@ from kaa_scheduler.models import KaaStatus
 from kaa_scheduler.infra.process import is_process_running, launch_process, list_process_details, wait_for_process_exit
 
 
-WORKER_COMMAND_FRAGMENT = "-m kaa.main.cli"
+WORKER_COMMAND_FRAGMENTS = ("-m kaa.main.cli", "kaa.application.cli.index")
 START_IMMEDIATELY_ARGUMENT = "--start-immidiately"
+NEW_VERSION_COMMAND = [
+    "-c",
+    "from kaa.application.cli.index import make_kaa; kaa = make_kaa(None); kaa.run_all()",
+]
 
 
 class KaaController:
@@ -32,7 +36,7 @@ class KaaController:
             executable_path = process.get("executable_path", "")
             if process.get("image_name", "").lower() != "python.exe":
                 continue
-            if WORKER_COMMAND_FRAGMENT not in command_line:
+            if not any(fragment in command_line for fragment in WORKER_COMMAND_FRAGMENTS):
                 continue
             normalized_command = command_line.lower()
             normalized_path = executable_path.lower()
@@ -41,16 +45,32 @@ class KaaController:
             return process
         return None
 
-    def _wait_for_worker_start(self, timeout_seconds: int = 15, poll_interval: float = 0.5) -> dict:
-        """Wait until the real kaa worker process appears."""
+    def _wait_for_worker_start(self, timeout_seconds: int = 60, poll_interval: float = 0.5) -> dict:
+        """Wait until the real kaa worker process appears.
 
+        The launcher may detach or exit early (common for GUI executables), so we
+        do not treat a dead launcher as an immediate failure. We keep polling for
+        the worker until the timeout expires.
+        """
+
+        launcher_exit_code: Optional[int] = None
         deadline = time.monotonic() + timeout_seconds
         while time.monotonic() < deadline:
+            if launcher_exit_code is None:
+                launcher_exit_code = self._process.poll()
             worker = self._find_worker_process()
             if worker is not None:
                 return worker
             time.sleep(poll_interval)
-        raise RuntimeError("kaa launcher exited before the real worker process could be identified.")
+
+        if launcher_exit_code is not None:
+            raise RuntimeError(
+                "kaa worker process did not appear before the timeout; "
+                f"the launcher exited with code {launcher_exit_code}. "
+                "If the code is non-zero, the launcher likely failed to parse the startup arguments; "
+                "check whether KAA_SCHEDULER_KAA_NEW_VERSION matches your kaa CLI version."
+            )
+        raise RuntimeError("kaa worker process did not appear before the timeout.")
 
     def _wait_for_worker_exit(self, pid: int, timeout_seconds: int, poll_interval: float = 0.5) -> int:
         """Wait until the identified kaa worker process exits."""
@@ -71,14 +91,21 @@ class KaaController:
             self.logger.info(message)
             return KaaStatus(process_running=False, pid=None, exit_code=0, message=message)
 
-        if not self.config.kaa_exe_path.exists():
-            raise FileNotFoundError("kaa executable was not found: " + str(self.config.kaa_exe_path))
-
         if not self.config.kaa_working_dir.exists():
             raise FileNotFoundError("kaa working directory was not found: " + str(self.config.kaa_working_dir))
 
+        if self.config.kaa_new_version:
+            executable = self.config.kaa_python_exe_path
+            extra_args = NEW_VERSION_COMMAND
+        else:
+            executable = self.config.kaa_exe_path
+            extra_args = [START_IMMEDIATELY_ARGUMENT]
+
+        if not executable.exists():
+            raise FileNotFoundError("kaa executable was not found: " + str(executable))
+
         self._process = launch_process(
-            [str(self.config.kaa_exe_path), START_IMMEDIATELY_ARGUMENT],
+            [str(executable)] + extra_args,
             cwd=self.config.kaa_working_dir,
         )
         worker = self._wait_for_worker_start()

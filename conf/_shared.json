@@ -1,0 +1,39 @@
+{
+  "version": 2,
+  "profiles": {
+    "last_used": "default",
+    "open_tabs": []
+  },
+  "interface": {
+    "window_style": "",
+    "theme_color": null,
+    "color_scheme": "auto",
+    "startup_page": "last_opened"
+  },
+  "misc": {
+    "check_update": "startup",
+    "auto_install_update": true,
+    "update_channel": "release",
+    "log_level": "debug",
+    "game_data_check": "startup",
+    "game_data_auto_update": true,
+    "game_data_last_checked": null,
+    "last_seen_changelog": null
+  },
+  "telemetry": {
+    "sentry": null
+  },
+  "notify": {
+    "system": true,
+    "push": {
+      "enabled": false,
+      "type": "custom",
+      "command": "",
+      "webhook_url": ""
+    }
+  },
+  "hotkeys": {
+    "start": null,
+    "stop": null
+  }
+}
